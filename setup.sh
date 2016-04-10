@@ -263,6 +263,8 @@ EOF
 
 function install_php {
 
+    add-apt-repository ppa:ondrej/php
+
     # Install PHP packages and extensions specified in options.conf
     aptitude -y install $PHP_BASE
     aptitude -y install $PHP_EXTRAS
