@@ -3,9 +3,11 @@
 
 
 # First uninstall any unnecessary packages and ensure that aptitude is installed. 
-apt-get update
-#apt-get -y install aptitude
-#aptitude -y install nano
+apt update
+apt -y install aptitude
+#Nano is already installed with ubuntu 18.04
+# aptitude -y install nano
+# LSB Release is already Installed 
 #aptitude -y install lsb-release
 #service apache2 stop
 #service sendmail stop
