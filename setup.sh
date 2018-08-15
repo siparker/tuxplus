@@ -1,24 +1,11 @@
+#!/usr/bin/env bash
 ###############################################################################################
+# Tuxplus18 - Ubuntu Bionic Beaver 18.04 Nginx PerconaDB PHP 7.2 LNPP Installer for           #
+# Forked From                                                                                 #
 # TuxLite - Complete LNMP/LAMP setup script for Debian/Ubuntu                                 #
-# Nginx/Apache + PHP5-FPM + MySQL                                                             #
-# Stack is optimized/tuned for a 256MB server                                                 #
-# Email your questions to s@tuxlite.com                                                       #
 ###############################################################################################
 
 source ./options.conf
-
-
-
-
-# Detect distribution. Debian or Ubuntu
-DISTRO=`lsb_release -i -s`
-# Distribution's release. Squeeze, wheezy, precise etc
-RELEASE=`lsb_release -c -s`
-if  [ $DISTRO = "" ]; then
-    echo -e "\033[35;1mPlease run 'aptitude -y install lsb-release' before using this script.\033[0m"
-    exit 1
-fi
-
 
 #### Functions Begin ####
 
@@ -26,24 +13,33 @@ function basic_server_setup {
 
     aptitude update && aptitude -y safe-upgrade
 
+    # Allow openssh through UFW and enable the firewall
+    ufw allow OpenSSH
+    ufw enable
+
+
+
     # Reconfigure sshd - change port and disable root login
-    sed -i 's/^Port [0-9]*/Port '${SSHD_PORT}'/' /etc/ssh/sshd_config
+    sed -i 's/#Port 22/Port '${SSHD_PORT}'/' /etc/ssh/sshd_config
 	if  [ $ROOT_LOGIN = "no" ]; then
     	sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
 	fi;
     service ssh reload
 
     # Set hostname and FQDN
+    if [ ! -f /etc/cloud/cloud.cfg ]; then
+        echo "No Cloud.cfg file. updating hostname"
+        hostnamectl set-hostname $HOSTNAME
+    else
+        echo "Found Cloud CGF file. setting preserve hostname and updating hostname"
+        sudo sed -i 's/preserve_hostname: false/preserve_hostname: true' /etc/cloud/cloud.cfg && sudo hostnamectl set-hostname $HOSTNAME
+    fi
     sed -i 's/'${LOCAL_IP}'.*/'${LOCAL_IP}' '${HOSTNAME_FQDN}' '${HOSTNAME}'/' /etc/hosts
     echo "$HOSTNAME" > /etc/hostname
 
-    if [ $DISTRO = "Debian" ]; then
-        # Debian system, use hostname.sh
-        service hostname.sh start
-    else
-        # Ubuntu system, use hostname
-        service hostname start
-    fi
+    # Ubuntu system, use hostname
+    service hostname start
+
 
     # Basic hardening of sysctl.conf
     sed -i 's/^#net.ipv4.conf.all.accept_source_route = 0/net.ipv4.conf.all.accept_source_route = 0/' /etc/sysctl.conf
@@ -210,22 +206,15 @@ function install_webserver {
     if [ $WEBSERVER = 1 ]; then
         aptitude -y install nginx
 
-        if  [ $USE_NGINX_ORG_REPO = "yes" ]; then
-            mkdir /etc/nginx/sites-available
-            mkdir /etc/nginx/sites-enabled
-
-           # Disable vhost that isn't in the sites-available folder. Put a hash in front of any line.
-           sed -i 's/^[^#]/#&/' /etc/nginx/conf.d/default.conf
-
-           # Enable default vhost in /etc/nginx/sites-available
-           ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
-        fi
-
         # Add a catch-all default vhost
         cat ./config/nginx_default_vhost.conf > /etc/nginx/sites-available/default
 
         # Change default vhost root directory to /usr/share/nginx/html;
         sed -i 's/\(root \/usr\/share\/nginx\/\).*/\1html;/' /etc/nginx/sites-available/default
+
+        # Allow HTTP and HTTPS through the firewall
+        ufw allow 'Nginx Full'
+        ufw reload
 
         # Create common SSL config file
         cat > /etc/nginx/ssl.conf <<EOF
@@ -233,13 +222,21 @@ ssl on;
 ssl_certificate /etc/ssl/localcerts/webserver.pem;
 ssl_certificate_key /etc/ssl/localcerts/webserver.key;
 
-ssl_session_cache shared:SSL:10m;
-ssl_session_timeout 10m;
+ssl_session_cache shared:SSL:10m; # a 1mb cache can hold about 4000 sessions, so we can hold 40000 sessions
+ssl_session_timeout 24h;
 
-ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
-ssl_ciphers HIGH:!aNULL:!MD5;
+ssl_protocols TLSv1.2;
+ssl_ciphers ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA256:DHE-RSA-AES256-SHA:ECDHE-ECDSA-DES-CBC3-SHA:ECDHE-RSA-DES-CBC3-SHA:EDH-RSA-DES-CBC3-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:DES-CBC3-SHA:!DSS;
 ssl_prefer_server_ciphers on;
+
+# Use a higher keepalive timeout to reduce the need for repeated handshakes
+keepalive_timeout 300s; # up from 75 secs default
 EOF
+        # run the long openssl key generation thing
+        openssl dhparam -out dhparams.pem 4096 & bg
+
+        # HTTPS: create ACME-challenge common directory
+        sudo -u www-data sh -c "mkdir -p /var/www/_letsencrypt"
 
     else
         aptitude -y install libapache2-mod-fastcgi apache2-mpm-event
@@ -263,12 +260,8 @@ EOF
 
 function install_php {
 
-    add-apt-repository ppa:ondrej/php
-    apt-get update
-
-    # Install PHP packages and extensions specified in options.conf
-    aptitude -y install $PHP_BASE
-    aptitude -y install $PHP_EXTRAS
+    # Install PHP 7.2 by default
+    aptitude -y install php-fpm php-mysql
 
 } # End function install_php
 
@@ -286,49 +279,21 @@ function install_extras {
 
 
 function install_mysql {
+    export DEBIAN_FRONTEND=noninteractive
+    echo "percona-server-server-5.7 percona-server-server-5.7/root-pass password $MYSQL_ROOT_PASSWORD" | debconf-set-selections
+    echo "percona-server-server-5.7 percona-server-server-5.7/re-root-pass password $MYSQL_ROOT_PASSWORD" | debconf-set-selections
+    wget https://repo.percona.com/apt/percona-release_0.1-6.$(lsb_release -sc)_all.deb
+    dpkg -i percona-release_0.1-6.$(lsb_release -sc)_all.deb
+    aptitude update
+    aptitude -y install percona-server-server-5.7 percona-server-client-5.7
 
-    if [ $DBSERVER = 3 ]; then
-        echo "percona-server-server-5.6 percona-server-server/root_password password $MYSQL_ROOT_PASSWORD" | debconf-set-selections
-        echo "percona-server-server-5.6 percona-server-server/root_password_again password $MYSQL_ROOT_PASSWORD" | debconf-set-selections
-    else
-        echo "mysql-server mysql-server/root_password password $MYSQL_ROOT_PASSWORD" | debconf-set-selections
-        echo "mysql-server mysql-server/root_password_again password $MYSQL_ROOT_PASSWORD" | debconf-set-selections
-    fi
 
-    if [ $DBSERVER = 2 ]; then
-        aptitude -y install mariadb-server mariadb-client
-    elif [ $DBSERVER = 3 ]; then
-        aptitude -y install percona-server-server-5.6 percona-server-client-5.6
     else
         aptitude -y install mysql-server mysql-client
     fi
 
     echo -e "\033[35;1m Securing MySQL... \033[0m"
     sleep 5
-
-    aptitude -y install expect
-
-    SECURE_MYSQL=$(expect -c "
-        set timeout 10
-        spawn mysql_secure_installation
-        expect \"Enter current password for root (enter for none):\"
-        send \"$MYSQL_ROOT_PASSWORD\r\"
-        expect \"Change the root password?\"
-        send \"n\r\"
-        expect \"Remove anonymous users?\"
-        send \"y\r\"
-        expect \"Disallow root login remotely?\"
-        send \"y\r\"
-        expect \"Remove test database and access to it?\"
-        send \"y\r\"
-        expect \"Reload privilege tables now?\"
-        send \"y\r\"
-        expect eof
-    ")
-
-    echo "$SECURE_MYSQL"
-    aptitude -y purge expect
-
 } # End function install_mysql
 
 
@@ -336,13 +301,8 @@ function optimize_stack {
 
     # If using Nginx, copy over nginx.conf
     if [ $WEBSERVER = 1 ]; then
+        #copy generic nginx conf in to place
         cat ./config/nginx.conf > /etc/nginx/nginx.conf
-
-        # Change nginx user from  "www-data" to "nginx". Not really necessary
-        # because "www-data" user is created when installing PHP5-FPM
-        if  [ $USE_NGINX_ORG_REPO = "yes" ]; then
-            sed -i 's/^user\s*www-data/user nginx/' /etc/nginx/nginx.conf
-        fi
 
         # Change logrotate for nginx log files to keep 10 days worth of logs
         nginx_file=`find /etc/logrotate.d/ -maxdepth 1 -name "nginx*"`
@@ -374,8 +334,8 @@ function optimize_stack {
         sed -i 's/^[^#]/#&/' /etc/cron.d/awstats
     fi
 
-    service php7.0-fpm stop
-    php_fpm_conf="/etc/php/7.0/fpm/pool.d/www.conf"
+    service php7.2-fpm stop
+    php_fpm_conf="/etc/php/7.2/fpm/pool.d/www.conf"
     # Limit FPM processes
     sed -i 's/^pm.max_children.*/pm.max_children = '${FPM_MAX_CHILDREN}'/' $php_fpm_conf
     sed -i 's/^pm.start_servers.*/pm.start_servers = '${FPM_START_SERVERS}'/' $php_fpm_conf
@@ -385,7 +345,7 @@ function optimize_stack {
     # Change to socket connection for better performance
     sed -i 's/^listen =.*/listen = \/var\/run\/php\/php7.0-fpm.sock/' $php_fpm_conf
 
-    php_ini_dir="/etc/php/7.0/fpm/php.ini"
+    php_ini_dir="/etc/php/7.2/fpm/php.ini"
     # Tweak php.ini based on input in options.conf
     sed -i 's/^max_execution_time.*/max_execution_time = '${PHP_MAX_EXECUTION_TIME}'/' $php_ini_dir
     sed -i 's/^memory_limit.*/memory_limit = '${PHP_MEMORY_LIMIT}'/' $php_ini_dir
@@ -440,9 +400,9 @@ function optimize_stack {
 
     restart_webserver
     sleep 2
-    service php7.0-fpm start
+    service php7.2-fpm start
     sleep 2
-    service php7.0-fpm restart
+    service php7.2-fpm restart
     echo -e "\033[35;1m Optimize complete! \033[0m"
 
 } # End function optimize
@@ -614,6 +574,36 @@ function restart_webserver {
 
 } # End function restart_webserver
 
+function performance_tweaks {
+
+    # Install and prepare Redis
+    aptitude -y install redis-server
+    aptitude -y install php-redis
+    echo "maxmemory 256mb" >> /etc/redis/redis.conf
+    echo "maxmemory-policy allkeys-lru" >> /etc/redis/redis.conf
+    service redis-server restart
+    service php7.2-fpm restart
+
+    # Tweak Percona
+    cat > /etc/mysql/percona-server.conf.d/mysqld.cnf <<EOF
+# Percona Tweaks
+key_buffer = 512M
+max_allowed_packet = 512M
+thread_stack = 192K
+thread_cache_size = 8
+query_cache_limit = 512M
+query_cache_size = 4192M #(or 0 can improve performance, it depends)
+innodb_buffer_pool_size = 20000M #(according to your memory - as a guide, use 60% of your memory here)
+innodb_buffer_pool_instances = 8 #(according to how many cores you have)
+EOF
+
+    # install APC
+    apt install php7.2-apcu -y
+    echo "apc.shm_size = "128M"" >> /etc/php/7.2/mods-available/apcu.ini
+
+    service php7.2-fpm restart
+} # End function performance_tweaks
+
 
 
 #### Main program begins ####
@@ -674,11 +664,12 @@ install)
     install_extras
     install_postfix
     restart_webserver
-    service php7.0-fpm restart
+    service php7.2-fpm restart
     echo -e "\033[35;1m Webserver + PHP-FPM + MySQL install complete! \033[0m"
     ;;
 optimize)
     optimize_stack
+    performance_tweaks
     ;;
 dbgui)
     install_dbgui

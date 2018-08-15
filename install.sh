@@ -1,56 +1,76 @@
-#!/bin/bash
+#!/usr/bin/env bash
+###############################################################################################
+# Tuxplus18 - Ubuntu Bionic Beaver 18.04 Nginx PerconaDB PHP 7.2 LNPP Installer for           #
+# Forked From                                                                                 #
+# TuxLite - Complete LNMP/LAMP setup script for Debian/Ubuntu                                 #
+###############################################################################################
 
 
+# Assuming Fresh Install - No need to remove packages Lsb Release and Nano are already installed.
+apt update
+apt install aptitude
 
-# First uninstall any unnecessary packages and ensure that aptitude is installed. 
-apt-get update
-#apt-get -y install aptitude
-#aptitude -y install nano
-#aptitude -y install lsb-release
-#service apache2 stop
-#service sendmail stop
-#service bind9 stop
-#service nscd stop
-#aptitude -y purge nscd bind9 sendmail apache2 apache2.2-common
 
 ## get local ip address
 #LOCAL_IP=`./functions/get_ip.py`
 #
 #
-#        echo -n "Enter Desired Hostname: eg srv1 "; read SET_HOSTNAME;
-#        echo -n "Enter admin email address "; read SET_EMAIL;
-#        echo -n "Enter Desired FQDN: eg srv1.yourdomain.com"; read SET_FQDNHOSTNAME;
-#        echo -n "Enter MYSQL Root Password"; read SET_MYSQLPASS;
-#        echo " "
-#        echo "setting up variables in config file"
-#
-#        sed -i 's/HOSTNAME=srv1/HOSTNAME=$SET_HOSTNAME'/' ./options.conf
-#        echo "Hostname Set To $SET_HOSTNAME successfully"
-#        sed -i 's/HOSTNAME_FQDN=srv1.yourdomain.com/HOSTNAME_FQDN=$SET_FQDNHOSTNAME'/' ./options.conf
-#        echo "FQDN Set To $SET_FQDNHOSTNAME successfully"
-#        sed -i 's/ADMIN_EMAIL="admin@yourdomain.com"/ADMIN_EMAIL="$SET_EMAIL"'/' ./options.conf
-#        echo "Admin Email Set To $SET_EMAIL successfully"
-#        sed -i 's/MYSQL_ROOT_PASSWORD=abcd1234/MYSQL_ROOT_PASSWORD=$SET_MYSQLPASS'/' ./options.conf
-#        echo "Admin Email Set To $SET_MYSQLPASS successfully"
-#        sed -i 's/SERVER_IP="0.0.0.0"/SERVER_IP="$LOCAL_IP"'/' ./options.conf
-#        echo "Local Ip Address $LOCAL_IP set successfully"
+echo -n "Enter Desired Hostname: eg srv1 "; read SET_HOSTNAME;
+echo -n "Enter admin email address "; read SET_EMAIL;
+echo -n "Enter Desired FQDN: eg srv1.yourdomain.com"; read SET_FQDNHOSTNAME;
+echo -n "Enter MYSQL Root Password"; read SET_MYSQLPASS;
+echo -n "Enter the Server IP Address"; read LOCAL_IP;
+echo -n "Enter a new SSH Port Number"; read NEW_SSH;
+echo " "
+echo "setting up variables in config file"
+
+sed -i 's/HOSTNAME=srv1/HOSTNAME=$SET_HOSTNAME'/' ./options.conf
+echo "Hostname Set To $SET_HOSTNAME successfully"
+sed -i 's/HOSTNAME_FQDN=srv1.yourdomain.com/HOSTNAME_FQDN=$SET_FQDNHOSTNAME'/' ./options.conf
+echo "FQDN Set To $SET_FQDNHOSTNAME successfully"
+sed -i 's/ADMIN_EMAIL="admin@yourdomain.com"/ADMIN_EMAIL="$SET_EMAIL"'/' ./options.conf
+echo "Admin Email Set To $SET_EMAIL successfully"
+sed -i 's/MYSQL_ROOT_PASSWORD=abcd1234/MYSQL_ROOT_PASSWORD=$SET_MYSQLPASS'/' ./options.conf
+echo "Admin Email Set To $SET_MYSQLPASS successfully"
+sed -i 's/SERVER_IP="0.0.0.0"/SERVER_IP="$LOCAL_IP"'/' ./options.conf
+echo "Local Ip Address $LOCAL_IP set successfully"
+sed -i 's/SSHD_PORT=22/SSHD_PORT=$NEW_SSH'/' ./options.conf
+echo "New SSH Port $NEW_SSH set successfully"
+
+while true; do
+        echo -n "Do you want to Disable Root Login? 1=Yes 2=NO"; read DISABLE_ROOT;
+
+        if [ "$DISABLE_ROOT" != '1' -a "$DISABLE_ROOT" != '2' ]; then
+                echo -e "\033[31minput error! Please only input '1' or '2'\033[0m"
+        elif [ "$DISABLE_ROOT" == "1" ]; then
+                sed -i 's/ROOT_LOGIN=yes/ROOT_LOGIN=no'/' ./options.conf
+                echo "Root Login Will Be Disabled"
+                break
+        else
+                echo "Root Login Will Stay Enabled"
+                break
+        fi
+
+
 #
 ## choose webserver
-#while true; do
-#        echo -n "Do you want to install Nginx 1 or Apache 2 "; read NGINX_APACHE;
-#
-#        if [ "$NGINX_APACHE" != '1' -a "$NGINX_APACHE" != '2' ]; then
-#                echo -e "\033[31minput error! Please only input '1' or '2'\033[0m"
-#        elif [ "$NGINX_APACHE" == "2" ]; then
-#                sed -i 's/^WEBSERVER=[0-9]*/WEBSERVER='${NGINX_APACHE}'/' ./options.conf
-#                echo "Using Apache"
-#                break
-#        else
-#                sed -i 's/^WEBSERVER=[0-9]*/WEBSERVER='${NGINX_APACHE}'/' ./options.conf
-#                echo "using Nginx"
-#                break
-#        fi
-#
+while true; do
+        echo -n "Do you want to install Nginx 1 or Apache 2 "; read NGINX_APACHE;
+
+        if [ "$NGINX_APACHE" != '1' -a "$NGINX_APACHE" != '2' ]; then
+                echo -e "\033[31minput error! Please only input '1' or '2'\033[0m"
+        elif [ "$NGINX_APACHE" == "2" ]; then
+                sed -i 's/^WEBSERVER=[0-9]*/WEBSERVER='${NGINX_APACHE}'/' ./options.conf
+                echo "Not sure why but Using Apache"
+                break
+        else
+                sed -i 's/^WEBSERVER=[0-9]*/WEBSERVER='${NGINX_APACHE}'/' ./options.conf
+                echo "You Have Chosen Wisely..... using Nginx"
+                break
+        fi
+
+
+echo "Using Percona DB"
 #done
 ## Choose DB Type
 #while true; do
@@ -74,10 +94,11 @@ apt-get update
 #
 #done
 
-echo ""
-echo "Configuring /etc/apt/sources.list."
-sleep 5
-./setup.sh apt
+# Not Required
+#echo ""
+#echo "Configuring /etc/apt/sources.list."
+#sleep 5
+#./setup.sh apt
 
 echo ""
 echo "Installing updates & configuring SSHD / hostname."

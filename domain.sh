@@ -83,26 +83,26 @@ function reload_webserver {
 function php_fpm_add_user {
 
     # Copy over FPM template for this Linux user if it doesn't exist
-    if [ ! -e /etc/php/7.0/fpm/pool.d/$DOMAIN_OWNER.conf ]; then
-        cp /etc/php/7.0/fpm/pool.d/{www.conf,$DOMAIN_OWNER.conf}
+    if [ ! -e /etc/php/7.2/fpm/pool.d/$DOMAIN_OWNER.conf ]; then
+        cp /etc/php/7.2/fpm/pool.d/{www.conf,$DOMAIN_OWNER.conf}
 
         # Change pool user, group and socket to the domain owner
-        sed -i 's/^\[www\]$/\['${DOMAIN_OWNER}'\]/' /etc/php/7.0/fpm/pool.d/$DOMAIN_OWNER.conf
-        sed -i 's/^listen =.*/listen = \/var\/run\/php\/php7.0-fpm-'${DOMAIN_OWNER}'.sock/' /etc/php/7.0/fpm/pool.d/$DOMAIN_OWNER.conf
-        sed -i 's/^user = www-data$/user = '${DOMAIN_OWNER}'/' /etc/php/7.0/fpm/pool.d/$DOMAIN_OWNER.conf
-        sed -i 's/^group = www-data$/group = '${DOMAIN_OWNER}'/' /etc/php/7.0/fpm/pool.d/$DOMAIN_OWNER.conf
-        sed -i 's/^;listen.mode =.*/listen.mode = 0660/' /etc/php/7.0/fpm/pool.d/$DOMAIN_OWNER.conf
+        sed -i 's/^\[www\]$/\['${DOMAIN_OWNER}'\]/' /etc/php/7.2/fpm/pool.d/$DOMAIN_OWNER.conf
+        sed -i 's/^listen =.*/listen = \/var\/run\/php\/php7.0-fpm-'${DOMAIN_OWNER}'.sock/' /etc/php/7.2/fpm/pool.d/$DOMAIN_OWNER.conf
+        sed -i 's/^user = www-data$/user = '${DOMAIN_OWNER}'/' /etc/php/7.2/fpm/pool.d/$DOMAIN_OWNER.conf
+        sed -i 's/^group = www-data$/group = '${DOMAIN_OWNER}'/' /etc/php/7.2/fpm/pool.d/$DOMAIN_OWNER.conf
+        sed -i 's/^;listen.mode =.*/listen.mode = 0660/' /etc/php/7.2/fpm/pool.d/$DOMAIN_OWNER.conf
 
        if [ $USE_NGINX_ORG_REPO = "yes" ]; then
-            sed -i 's/^;listen.owner =.*/listen.owner = nginx/' /etc/php/7.0/fpm/pool.d/$DOMAIN_OWNER.conf
-            sed -i 's/^;listen.group =.*/listen.group = nginx/' /etc/php/7.0/fpm/pool.d/$DOMAIN_OWNER.conf
+            sed -i 's/^;listen.owner =.*/listen.owner = nginx/' /etc/php/7.2/fpm/pool.d/$DOMAIN_OWNER.conf
+            sed -i 's/^;listen.group =.*/listen.group = nginx/' /etc/php/7.2/fpm/pool.d/$DOMAIN_OWNER.conf
         else
-            sed -i 's/^;listen.owner =.*/listen.owner = www-data/' /etc/php/7.0/fpm/pool.d/$DOMAIN_OWNER.conf
-            sed -i 's/^;listen.group =.*/listen.group = www-data/' /etc/php/7.0/fpm/pool.d/$DOMAIN_OWNER.conf
+            sed -i 's/^;listen.owner =.*/listen.owner = www-data/' /etc/php/7.2/fpm/pool.d/$DOMAIN_OWNER.conf
+            sed -i 's/^;listen.group =.*/listen.group = www-data/' /etc/php/7.2/fpm/pool.d/$DOMAIN_OWNER.conf
         fi
     fi
 
-    service php7.0-fpm restart
+    service php7.2-fpm restart
 
 } # End function php_fpm_add_user
 
@@ -389,15 +389,15 @@ EOF
 	
         cat > $DOMAIN_CONFIG_PATH <<EOF
 server {
-        listen 80;
-        #listen [::]:80 default ipv6only=on;
+        listen :443 ssl http2;
+		listen [::]:443 ssl http2;
 
         server_name www.$DOMAIN $DOMAIN;
         root $DOMAIN_PATH/public_html;
         access_log $DOMAIN_PATH/logs/access.log;
         error_log $DOMAIN_PATH/logs/error.log;
 
-        index index.php index.html index.htm;
+        index index.php index.html;
         error_page 404 /404.html;
 
         location / {
@@ -407,7 +407,7 @@ server {
         # Pass PHP scripts to PHP-FPM
         location ~ \.php$ {
             try_files \$uri =403;
-            fastcgi_pass unix:/var/run/php/php7.0-fpm-$DOMAIN_OWNER.sock;
+            fastcgi_pass unix:/var/run/php/php7.2-fpm-$DOMAIN_OWNER.sock;
             include fastcgi_params;
             fastcgi_index index.php;
             fastcgi_param SCRIPT_FILENAME  \$document_root\$fastcgi_script_name;
@@ -419,6 +419,7 @@ server {
             add_header Pragma "public";
             add_header Cache-Control "public";
             add_header Vary "Accept-Encoding";
+            access_log off;
         }
 
         # Enable browser cache for static files
@@ -436,57 +437,54 @@ server {
         # Prevent logging of favicon and robot request errors
         location = /favicon.ico { log_not_found off; access_log off; }
         location = /robots.txt  { log_not_found off; access_log off; }
-}
 
+        # gzip
+		gzip on;
+		gzip_vary on;
+		gzip_proxied any;
+		gzip_comp_level 6;
+		gzip_types text/plain text/css text/xml application/json application/javascript application/xml+rss application/atom+xml image/svg+xml;
+
+}
 
 server {
-        listen 443 ssl spdy;
-        server_name www.$DOMAIN $DOMAIN;
-        root $DOMAIN_PATH/public_html;
-        access_log $DOMAIN_PATH/logs/access.log;
-        error_log $DOMAIN_PATH/logs/error.log;
+	# ssl non www
+	listen :443 ssl http2;
+	listen [::]:443 ssl http2;
+	server_name $DOMAIN;
 
-        index index.php index.html index.htm;
-        error_page 404 /404.html;
+        ssl on;
+        # SSL
+		ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+		ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+		ssl_trusted_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
 
-        include /etc/nginx/ssl.conf;
 
-        location / {
-            try_files \$uri \$uri/ /index.php?\$args;
-        }
 
-        location ~ \.php$ {
-            try_files \$uri =403;
-            fastcgi_pass unix:/var/run/php/php7.0-fpm-$DOMAIN_OWNER.sock;
-            include fastcgi_params;
-            fastcgi_index index.php;
-            fastcgi_param SCRIPT_FILENAME  \$document_root\$fastcgi_script_name;
-        }
+        ssl_session_timeout 10m;
 
-        # Enable browser cache for CSS / JS
-        location ~* \.(?:css|js)$ {
-            expires 30d;
-            add_header Pragma "public";
-            add_header Cache-Control "public";
-            add_header Vary "Accept-Encoding";
-        }
+        ssl_protocols TLSv1.2;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers on;
 
-        # Enable browser cache for static files
-        location ~* \.(?:ico|jpg|jpeg|gif|png|bmp|webp|tiff|svg|svgz|pdf|mp3|flac|ogg|mid|midi|wav|mp4|webm|mkv|ogv|wmv|eot|otf|woff|ttf|rss|atom|zip|7z|tgz|gz|rar|bz2|tar|exe|doc|docx|xls|xlsx|ppt|pptx|rtf|odt|ods|odp)$ {
-            expires 60d;
-            add_header Pragma "public";
-            add_header Cache-Control "public";
-        }
-
-        # Deny access to hidden files
-        location ~ (^|/)\. {
-            deny all;
-        }
-
-        # Prevent logging of favicon and robot request errors
-        location = /favicon.ico { log_not_found off; access_log off; }
-        location = /robots.txt  { log_not_found off; access_log off; }
+	rewrite ^ https://www.$DOMAIN$request_uri? permanent;
 }
+
+server {
+		listen :80;
+		listen [::]:80;
+
+		server_name www.$DOMAIN $DOMAIN;
+
+		# ACME-challenge
+		location ^~ /.well-known/acme-challenge/ {
+			root /var/www/_letsencrypt;
+		}
+
+		location / {
+			return 301 https://www.$DOMAIN$request_uri;
+		}
+	}
 EOF
 	fi
     else # Use Apache vHost config
